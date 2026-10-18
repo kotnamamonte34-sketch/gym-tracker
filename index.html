@@ -63,5 +63,42 @@ let aiBusy=false;
 function aiBubble(role,text){const el=document.createElement('div');el.className='ai-bubble '+(role==='user'?'ai-user':'ai-assistant');el.textContent=text;const box=document.getElementById('aiMessages');box.appendChild(el);box.scrollTop=box.scrollHeight;return el}
 async function sendAiMessage(){if(aiBusy)return;const input=document.getElementById('aiQuestion');const question=input.value.trim();if(!question)return;const status=document.getElementById('aiStatus');if(!cloudUser){status.textContent='Сначала войди в облачный аккаунт вверху страницы.';return}const {data:{session}}=await sb.auth.getSession();if(!session){status.textContent='Сессия истекла. Войди заново.';return}aiBusy=true;document.getElementById('aiSend').disabled=true;input.value='';aiBubble('user',question);const placeholder=aiBubble('assistant','Думаю…');status.textContent='Отправляем запрос…';try{const response=await fetch('https://fjujqxibgtrjagifwlzw.supabase.co/functions/v1/gym-ai',{method:'POST',headers:{'Content-Type':'application/json','apikey':'sb_publishable_zwyOcVEFU11sXyfZbaYF-Q_UrYtuq6q','Authorization':'Bearer '+session.access_token},body:JSON.stringify({message:question})});const json=await response.json();placeholder.textContent=json.answer||json.error||'Не удалось получить ответ';status.textContent=response.ok?'Ответ получен':'Ошибка ИИ: '+response.status}catch(e){placeholder.textContent='Ошибка соединения. Попробуй ещё раз.';status.textContent='Ошибка сети'}finally{aiBusy=false;document.getElementById('aiSend').disabled=false}}
 
+
+/* Personal 14-day review; generated only when signed in and app is opened. */
+let reviewInFlight=false;
+function reviewStorageKey(){return cloudUser?'gymtracker_review_14d_'+cloudUser.id:null}
+function readReview(){try{return JSON.parse(localStorage.getItem(reviewStorageKey())||'null')}catch{return null}}
+function reviewCard(){
+ const dashboard=document.getElementById('dashboard');if(!dashboard)return null;
+ let card=document.getElementById('fortnightReview');
+ if(!card){card=document.createElement('div');card.id='fortnightReview';card.className='card';card.innerHTML='<h2>📊 Отчёт ИИ за 14 дней</h2><p id="fortnightStatus" class="muted"></p><div id="fortnightText" style="white-space:pre-wrap;line-height:1.6"></div><button id="fortnightRetry" class="primary" style="display:none;margin-top:12px">Повторить</button>';dashboard.appendChild(card);card.querySelector('#fortnightRetry').onclick=()=>generateReview(true)}
+ return card;
+}
+function renderReview(){
+ if(!cloudUser)return;const card=reviewCard();if(!card)return;
+ const saved=readReview(),status=card.querySelector('#fortnightStatus'),body=card.querySelector('#fortnightText'),retry=card.querySelector('#fortnightRetry');
+ if(saved?.answer){body.textContent=saved.answer;status.textContent='Составлен: '+new Date(saved.at).toLocaleDateString('ru-RU')+' · Обновление раз в 14 дней'}
+ else{body.textContent='';status.textContent='ИИ подготовит персональный разбор тренировок при открытии приложения.'}
+ retry.style.display='none';
+}
+async function generateReview(force=false){
+ if(reviewInFlight||!cloudReady||!cloudUser||!sb)return;
+ const key=reviewStorageKey(),saved=readReview();
+ if(!force&&saved?.at&&Date.now()-saved.at<14*86400000)return;
+ const card=reviewCard();if(!card)return;
+ const status=card.querySelector('#fortnightStatus'),retry=card.querySelector('#fortnightRetry');
+ reviewInFlight=true;retry.style.display='none';status.textContent='ИИ анализирует последние две недели…';
+ try{
+  const {data:{session}}=await sb.auth.getSession();if(!session)throw Error('Нужно снова войти в Google');
+  const question='Составь персональный отчёт GYM TRACKER за последние 14 дней относительно текущей даты. Сравни тренировки по датам, веса, повторы, регулярность, кардио, сон, восстановление и замеры, если есть записи. Назови конкретные изменения, достижения, признаки застоя и 3 практических совета на следующие две недели. Не считай старые тренировки свежими. Если данных недостаточно, честно сообщи. Не выдумывай числа.';
+  const response=await fetch('https://fjujqxibgtrjagifwlzw.supabase.co/functions/v1/gym-ai',{method:'POST',headers:{'Content-Type':'application/json','apikey':'sb_publishable_zwyOcVEFU11sXyfZbaYF-Q_UrYtuq6q','Authorization':'Bearer '+session.access_token},body:JSON.stringify({message:question})});
+  const result=await response.json();if(!response.ok||!result.answer)throw Error(result.error||'Ошибка сервера '+response.status);
+  localStorage.setItem(key,JSON.stringify({at:Date.now(),answer:result.answer}));renderReview();
+ }catch(err){status.textContent='Не удалось составить отчёт: '+String(err.message||err);retry.style.display='inline-block'}
+ finally{reviewInFlight=false}
+}
+const previousGoHome=goHome;
+goHome=function(...args){const result=previousGoHome.apply(this,args);if(cloudReady&&cloudUser){renderReview();generateReview()}return result};
+
 setupCloud();
 init();</script></body></html>
