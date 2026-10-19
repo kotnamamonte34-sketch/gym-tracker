@@ -919,8 +919,13 @@ sendAiMessage=async function(){
  finally{aiBusy=false;document.getElementById('aiSend').disabled=false;}
 };
 function gymCoachAnswerValid(answer){return typeof answer==='string'&&answer.trim().length>0&&!/^Модель не вернула ответ\.?$/i.test(answer.trim());}
+function gymReviewEvidence(){
+ const snapshot={};for(const key of [...gymCollections,'nutritionTargets'])snapshot[key]=data[key]||null;
+ snapshot.goals=gymProfile?.goals||null;const text=JSON.stringify(gymSorted(snapshot));let hash=2166136261;
+ for(let i=0;i<text.length;i++){hash^=text.charCodeAt(i);hash=Math.imul(hash,16777619);}return (hash>>>0).toString(16);
+}
 const gymAuditedReadReview=readReview;
-readReview=function(){const saved=gymAuditedReadReview();return saved&&gymCoachAnswerValid(saved.answer)?saved:null;};
+readReview=function(){const saved=gymAuditedReadReview();return saved&&gymCoachAnswerValid(saved.answer)&&saved.evidence===gymReviewEvidence()?saved:null;};
 let gymReviewFailedFor=null;
 generateReview=async function(force=false){
  if(reviewInFlight||!cloudReady||!cloudUser||!sb)return;
@@ -930,9 +935,10 @@ generateReview=async function(force=false){
  try{
   if(localStorage.getItem('gym_cloud_dirty_'+owner)==='1'){await syncNow();if(localStorage.getItem('gym_cloud_dirty_'+owner)==='1')throw Error('Сначала синхронизируй дневник.');}
   const {data:auth,error}=await sb.auth.getSession();if(error||!auth.session)throw Error('Нужно снова войти в Google');if(cloudUser?.id!==owner)return;
+  const evidence=gymReviewEvidence();
   const a=coachStats(),question='Проверенные цифры за 14 дней: '+JSON.stringify({sessions:a.frequency,sets:a.sets,volume:a.volume,previousSessions:a.previous,previousVolume:a.priorVolume,improvements:a.improvements.slice(0,3),plateaus:a.plateaus.slice(0,3)})+'. Краткий персональный отчёт до 450 символов: прогресс, восстановление и 2 следующих шага. Используй только сохранённые записи за последние 14 дней. Если данных мало, скажи об этом. Не выдумывай факты.';
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
-  try{const response=await fetch(SB_URL+'/functions/v1/gym-ai',{method:'POST',headers:{'Content-Type':'application/json',apikey:SB_KEY,Authorization:'Bearer '+auth.session.access_token},body:JSON.stringify({message:question}),signal:controller.signal});const result=await response.json();if(!response.ok||!gymCoachAnswerValid(result.answer))throw Error(result.error||'ИИ не вернул содержательный ответ.');if(cloudUser?.id!==owner)return;localStorage.setItem(reviewStorageKey(),JSON.stringify({at:Date.now(),answer:result.answer.replace(/\|/g,' ').replace(/[#*`]/g,'').slice(0,550)}));gymReviewFailedFor=null;renderReview();}
+  try{const response=await fetch(SB_URL+'/functions/v1/gym-ai',{method:'POST',headers:{'Content-Type':'application/json',apikey:SB_KEY,Authorization:'Bearer '+auth.session.access_token},body:JSON.stringify({message:question}),signal:controller.signal});const result=await response.json();if(!response.ok||!gymCoachAnswerValid(result.answer))throw Error(result.error||'ИИ не вернул содержательный ответ.');if(cloudUser?.id!==owner)return;localStorage.setItem(reviewStorageKey(),JSON.stringify({at:Date.now(),evidence,answer:result.answer.replace(/\|/g,' ').replace(/[#*`]/g,'').slice(0,550)}));gymReviewFailedFor=null;renderReview();}
   finally{clearTimeout(timer);}
  }catch(e){if(cloudUser?.id===owner){gymReviewFailedFor=owner;status.textContent='Не удалось составить отчёт: '+(e.name==='AbortError'?'Сервер не ответил за 45 секунд.':e.message);retry.style.display='inline-block';}}
  finally{reviewInFlight=false;}
