@@ -926,6 +926,12 @@ function gymReviewEvidence(){
 }
 const gymAuditedReadReview=readReview;
 readReview=function(){const saved=gymAuditedReadReview();return saved&&gymCoachAnswerValid(saved.answer)&&saved.evidence===gymReviewEvidence()?saved:null;};
+const gymAuditedRenderReview=renderReview;
+renderReview=function(){
+ gymAuditedRenderReview();if(!cloudUser||readReview())return;const card=reviewCard();if(!card)return;
+ card.querySelector('#fortnightStatus').textContent=reviewInFlight?'ИИ анализирует последние две недели…':'Данные изменились или отчёт ещё не составлен.';
+ const retry=card.querySelector('#fortnightRetry');retry.textContent='Составить отчёт';retry.style.display=reviewInFlight?'none':'inline-block';
+};
 let gymReviewFailedFor=null;
 generateReview=async function(force=false){
  if(reviewInFlight||!cloudReady||!cloudUser||!sb)return;
@@ -935,6 +941,7 @@ generateReview=async function(force=false){
  try{
   if(localStorage.getItem('gym_cloud_dirty_'+owner)==='1'){await syncNow();if(localStorage.getItem('gym_cloud_dirty_'+owner)==='1')throw Error('Сначала синхронизируй дневник.');}
   const {data:auth,error}=await sb.auth.getSession();if(error||!auth.session)throw Error('Нужно снова войти в Google');if(cloudUser?.id!==owner)return;
+  if(!gymProfile)await gymEnsureProfile();if(cloudUser?.id!==owner)return;
   const evidence=gymReviewEvidence();
   const a=coachStats(),question='Проверенные цифры за 14 дней: '+JSON.stringify({sessions:a.frequency,sets:a.sets,volume:a.volume,previousSessions:a.previous,previousVolume:a.priorVolume,improvements:a.improvements.slice(0,3),plateaus:a.plateaus.slice(0,3)})+'. Краткий персональный отчёт до 450 символов: прогресс, восстановление и 2 следующих шага. Используй только сохранённые записи за последние 14 дней. Если данных мало, скажи об этом. Не выдумывай факты.';
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
